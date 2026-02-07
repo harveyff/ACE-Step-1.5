@@ -64,6 +64,8 @@ RUN pip install "transformers>=4.51.0,<4.58.0" \
         "tensorboard>=2.0.0" \
         "triton>=3.0.0" \
         xxhash \
+        toml \
+        python-dotenv \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
         -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com || \
     pip install "transformers>=4.51.0,<4.58.0" \
@@ -88,6 +90,8 @@ RUN pip install "transformers>=4.51.0,<4.58.0" \
         "tensorboard>=2.0.0" \
         "triton>=3.0.0" \
         xxhash \
+        toml \
+        python-dotenv \
         --extra-index-url https://download.pytorch.org/whl/cu128
 
 # 最后安装 flash-attn（需要 torch 已安装）

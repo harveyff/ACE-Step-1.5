@@ -437,55 +437,84 @@ def update_model_type_settings(config_path):
 
 def init_service_wrapper(dit_handler, llm_handler, checkpoint, config_path, device, init_llm, lm_model_path, backend, use_flash_attention, offload_to_cpu, offload_dit_to_cpu, compile_model, quantization):
     """Wrapper for service initialization, returns status, button state, accordion state, and model type settings"""
-    # Convert quantization checkbox to value (int8_weight_only if checked, None if not)
-    quant_value = "int8_weight_only" if quantization else None
+    import traceback
+    from loguru import logger
     
-    # Initialize DiT handler
-    status, enable = dit_handler.initialize_service(
-        checkpoint, config_path, device,
-        use_flash_attention=use_flash_attention, compile_model=compile_model, 
-        offload_to_cpu=offload_to_cpu, offload_dit_to_cpu=offload_dit_to_cpu,
-        quantization=quant_value
-    )
-    
-    # Initialize LM handler if requested
-    if init_llm:
-        # Get checkpoint directory
+    try:
+        # Get project root directory
         current_file = os.path.abspath(__file__)
         # This file is in acestep/gradio_ui/events/, need 4 levels up to reach project root
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file))))
         checkpoint_dir = os.path.join(project_root, "checkpoints")
         
-        lm_status, lm_success = llm_handler.initialize(
-            checkpoint_dir=checkpoint_dir,
-            lm_model_path=lm_model_path,
-            backend=backend,
+        logger.info(f"[init_service_wrapper] Starting initialization: project_root={project_root}, config_path={config_path}, checkpoint={checkpoint}")
+        
+        # Convert quantization checkbox to value (int8_weight_only if checked, None if not)
+        quant_value = "int8_weight_only" if quantization else None
+        
+        # Initialize DiT handler - FIX: pass project_root as first parameter, not checkpoint
+        logger.info(f"[init_service_wrapper] Initializing DiT model: config_path={config_path}, device={device}")
+        status, enable = dit_handler.initialize_service(
+            project_root=project_root,  # ✅ 修复：使用 project_root，不是 checkpoint
+            config_path=config_path,
             device=device,
-            offload_to_cpu=offload_to_cpu,
-            dtype=dit_handler.dtype,
+            use_flash_attention=use_flash_attention, 
+            compile_model=compile_model, 
+            offload_to_cpu=offload_to_cpu, 
+            offload_dit_to_cpu=offload_dit_to_cpu,
+            quantization=quant_value
         )
         
-        if lm_success:
-            status += f"\n{lm_status}"
-        else:
-            status += f"\n{lm_status}"
-            # Don't fail the entire initialization if LM fails, but log it
-            # Keep enable as is (DiT initialization result) even if LM fails
-    
-    # Check if model is initialized - if so, collapse the accordion
-    is_model_initialized = dit_handler.model is not None
-    accordion_state = gr.Accordion(open=not is_model_initialized)
-    
-    # Get model type settings based on actual loaded model
-    is_turbo = dit_handler.is_turbo_model()
-    model_type_settings = get_model_type_ui_settings(is_turbo)
-    
-    return (
-        status, 
-        gr.update(interactive=enable), 
-        accordion_state,
-        *model_type_settings
-    )
+        logger.info(f"[init_service_wrapper] DiT initialization result: enable={enable}, status={status[:100]}...")
+        
+        # Initialize LM handler if requested
+        if init_llm:
+            logger.info(f"[init_service_wrapper] Initializing LM model: {lm_model_path}, backend={backend}")
+            lm_status, lm_success = llm_handler.initialize(
+                checkpoint_dir=checkpoint_dir,
+                lm_model_path=lm_model_path,
+                backend=backend,
+                device=device,
+                offload_to_cpu=offload_to_cpu,
+                dtype=dit_handler.dtype,
+            )
+            
+            logger.info(f"[init_service_wrapper] LM initialization completed: success={lm_success}")
+            if lm_success:
+                status += f"\n{lm_status}"
+            else:
+                status += f"\n{lm_status}"
+                logger.warning(f"[init_service_wrapper] LM initialization failed: {lm_status}")
+                # Don't fail the entire initialization if LM fails, but log it
+                # Keep enable as is (DiT initialization result) even if LM fails
+        
+        # Check if model is initialized - if so, collapse the accordion
+        is_model_initialized = dit_handler.model is not None
+        accordion_state = gr.Accordion(open=not is_model_initialized)
+        
+        # Get model type settings based on actual loaded model
+        is_turbo = dit_handler.is_turbo_model()
+        model_type_settings = get_model_type_ui_settings(is_turbo)
+        
+        logger.info(f"[init_service_wrapper] Initialization completed: enable={enable}, model_initialized={is_model_initialized}")
+        
+        return (
+            status, 
+            gr.update(interactive=enable), 
+            accordion_state,
+            *model_type_settings
+        )
+    except Exception as e:
+        import traceback
+        from loguru import logger
+        error_msg = f"❌ Error in init_service_wrapper: {str(e)}\n\nTraceback:\n{traceback.format_exc()}"
+        logger.exception("[init_service_wrapper] Exception during initialization")
+        return (
+            error_msg,
+            gr.update(interactive=False),
+            gr.Accordion(open=True),
+            *get_model_type_ui_settings(False)  # Return default settings on error
+        )
 
 
 def get_model_type_ui_settings(is_turbo: bool):
