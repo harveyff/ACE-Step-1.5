@@ -41,51 +41,52 @@ RUN pip install torch==2.10.0 torchvision torchaudio==2.10.0 \
         --extra-index-url https://download.pytorch.org/whl/cu128
 
 # 安装其他核心依赖（排除 torch 相关和 flash-attn，稍后单独安装）
-RUN pip install transformers>=4.51.0,<4.58.0 \
+# 注意：版本约束需要用引号括起来，避免 shell 解释重定向符号
+RUN pip install "transformers>=4.51.0,<4.58.0" \
         diffusers \
-        gradio>=6.5.1 \
-        matplotlib>=3.7.5 \
-        scipy>=1.10.1 \
-        soundfile>=0.13.1 \
-        loguru>=0.7.3 \
-        einops>=0.8.1 \
-        accelerate>=1.12.0 \
-        fastapi>=0.110.0 \
+        "gradio>=6.5.1" \
+        "matplotlib>=3.7.5" \
+        "scipy>=1.10.1" \
+        "soundfile>=0.13.1" \
+        "loguru>=0.7.3" \
+        "einops>=0.8.1" \
+        "accelerate>=1.12.0" \
+        "fastapi>=0.110.0" \
         diskcache \
         "uvicorn[standard]>=0.27.0" \
-        numba>=0.63.1 \
-        vector-quantize-pytorch>=1.27.15 \
-        torchcodec>=0.9.1 \
+        "numba>=0.63.1" \
+        "vector-quantize-pytorch>=1.27.15" \
+        "torchcodec>=0.9.1" \
         torchao \
         modelscope \
-        peft>=0.7.0 \
-        lightning>=2.0.0 \
-        tensorboard>=2.0.0 \
-        triton>=3.0.0 \
+        "peft>=0.7.0" \
+        "lightning>=2.0.0" \
+        "tensorboard>=2.0.0" \
+        "triton>=3.0.0" \
         xxhash \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
         -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com || \
-    pip install transformers>=4.51.0,<4.58.0 \
+    pip install "transformers>=4.51.0,<4.58.0" \
         diffusers \
-        gradio>=6.5.1 \
-        matplotlib>=3.7.5 \
-        scipy>=1.10.1 \
-        soundfile>=0.13.1 \
-        loguru>=0.7.3 \
-        einops>=0.8.1 \
-        accelerate>=1.12.0 \
-        fastapi>=0.110.0 \
+        "gradio>=6.5.1" \
+        "matplotlib>=3.7.5" \
+        "scipy>=1.10.1" \
+        "soundfile>=0.13.1" \
+        "loguru>=0.7.3" \
+        "einops>=0.8.1" \
+        "accelerate>=1.12.0" \
+        "fastapi>=0.110.0" \
         diskcache \
         "uvicorn[standard]>=0.27.0" \
-        numba>=0.63.1 \
-        vector-quantize-pytorch>=1.27.15 \
-        torchcodec>=0.9.1 \
+        "numba>=0.63.1" \
+        "vector-quantize-pytorch>=1.27.15" \
+        "torchcodec>=0.9.1" \
         torchao \
         modelscope \
-        peft>=0.7.0 \
-        lightning>=2.0.0 \
-        tensorboard>=2.0.0 \
-        triton>=3.0.0 \
+        "peft>=0.7.0" \
+        "lightning>=2.0.0" \
+        "tensorboard>=2.0.0" \
+        "triton>=3.0.0" \
         xxhash \
         --extra-index-url https://download.pytorch.org/whl/cu128
 
