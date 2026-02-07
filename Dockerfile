@@ -25,11 +25,12 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 RUN python3.11 -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-# 克隆官方 ACE-Step 1.5 项目
-RUN git clone --recursive https://github.com/ACE-Step/ACE-Step-1.5.git .
-
 # 安装 pip 和升级到最新版本
 RUN pip install --upgrade pip setuptools wheel
+
+# 从构建上下文复制项目文件（而不是 git clone）
+# 这样可以包含本地修改，避免网络问题，加快构建速度
+COPY . /app/
 
 # 安装 Python 依赖（使用 PyTorch CUDA 12.8 源）
 # 注意：requirements.txt 中的 torch 版本会根据平台自动选择（Linux 使用 2.10.0）

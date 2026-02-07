@@ -55,11 +55,11 @@ RUN PYTHON_CMD=$(which python3.11 || which python3.10 || which python3) && \
     $PYTHON_CMD -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-# 克隆官方 ACE-Step 1.5 项目
-RUN git clone --recursive https://github.com/ACE-Step/ACE-Step-1.5.git .
-
 # 安装 pip 和升级到最新版本
 RUN pip install --upgrade pip setuptools wheel
+
+# 从构建上下文复制项目文件（而不是 git clone）
+COPY . /app/
 
 # 安装 PyTorch for Jetson
 # Jetson 需要使用预编译的 PyTorch wheel（从 NVIDIA 或 PyTorch 官方）
@@ -135,4 +135,5 @@ VOLUME [ "/app/checkpoints", "/app/outputs", "/app/logs" ]
 
 # 使用 ACE-Step 1.5 的新入口点
 ENTRYPOINT ["python3", "acestep/acestep_v15_pipeline.py", "--server-name", "0.0.0.0", "--port", "7860"]
+
 

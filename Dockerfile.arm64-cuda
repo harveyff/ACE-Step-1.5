@@ -40,11 +40,11 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 RUN python3.11 -m venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-# 克隆官方 ACE-Step 1.5 项目
-RUN git clone --recursive https://github.com/ACE-Step/ACE-Step-1.5.git .
-
 # 安装 pip 和升级到最新版本
 RUN pip install --upgrade pip setuptools wheel
+
+# 从构建上下文复制项目文件（而不是 git clone）
+COPY . /app/
 
 # 检测 CUDA 版本（Jetson 通常使用 CUDA 11.4 或 12.x）
 # 根据实际 CUDA 版本安装对应的 PyTorch
@@ -126,4 +126,5 @@ VOLUME [ "/app/checkpoints", "/app/outputs", "/app/logs" ]
 # 使用 ACE-Step 1.5 的新入口点
 # 设备会自动检测 CUDA（如果可用）
 ENTRYPOINT ["python3", "acestep/acestep_v15_pipeline.py", "--server-name", "0.0.0.0", "--port", "7860"]
+
 
