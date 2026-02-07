@@ -1,0 +1,129 @@
+# ARM64 with CUDA support for ACE-Step 1.5
+# 适用于：NVIDIA Jetson 设备（AGX Xavier, Orin, 等 ARM64 + CUDA 设备）
+# 
+# 注意：
+# 1. 此 Dockerfile 专为 NVIDIA Jetson 等支持 CUDA 的 ARM64 设备设计
+# 2. 需要 NVIDIA Container Toolkit 和 JetPack SDK
+# 3. CUDA 版本需要与 Jetson 设备的 JetPack 版本匹配
+
+# 使用 NVIDIA Jetson 基础镜像（根据你的 JetPack 版本选择）
+# JetPack 5.x 使用 CUDA 11.4, JetPack 6.x 使用 CUDA 12.x
+# 请根据你的设备选择合适的镜像标签
+FROM nvcr.io/nvidia/l4t-base:r35.2.1
+
+# 或者使用通用 CUDA ARM64 镜像（如果可用）
+# FROM nvidia/cuda:12.2.0-devel-ubuntu22.04-arm64
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    CUDA_HOME=/usr/local/cuda \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+WORKDIR /app
+
+# 安装系统依赖和 Python 3.11
+# 注意：Jetson 可能需要使用 python3.10，请根据实际情况调整
+RUN apt-get update && apt-get install -y \
+    python3.11 python3.11-venv python3.11-dev \
+    python3-pip \
+    build-essential git curl wget sox libsox-dev libsndfile1 ffmpeg \
+    ninja-build \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 创建 Python 3.11 的符号链接
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+# 创建虚拟环境
+RUN python3.11 -m venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
+# 克隆官方 ACE-Step 1.5 项目
+RUN git clone --recursive https://github.com/ACE-Step/ACE-Step-1.5.git .
+
+# 安装 pip 和升级到最新版本
+RUN pip install --upgrade pip setuptools wheel
+
+# 检测 CUDA 版本（Jetson 通常使用 CUDA 11.4 或 12.x）
+# 根据实际 CUDA 版本安装对应的 PyTorch
+RUN CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release \([0-9]\+\.[0-9]\+\).*/\1/') && \
+    echo "Detected CUDA version: $CUDA_VERSION" && \
+    if [ "$(echo "$CUDA_VERSION >= 12.0" | bc -l)" -eq 1 ]; then \
+        echo "Installing PyTorch for CUDA 12.x" && \
+        pip install torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/cu121 || \
+        pip install torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/cu121; \
+    else \
+        echo "Installing PyTorch for CUDA 11.8 (compatible with Jetson)" && \
+        pip install torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/cu118 || \
+        pip install torch torchvision torchaudio \
+            --index-url https://download.pytorch.org/whl/cu118; \
+    fi || \
+    echo "CUDA version detection failed, installing PyTorch for CUDA 11.8" && \
+    pip install torch torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu118
+
+# 安装其他依赖
+RUN pip install transformers>=4.51.0,<4.58.0 \
+        diffusers \
+        gradio>=6.5.1 \
+        matplotlib>=3.7.5 \
+        scipy>=1.10.1 \
+        soundfile>=0.13.1 \
+        loguru>=0.7.3 \
+        einops>=0.8.1 \
+        accelerate>=1.12.0 \
+        fastapi>=0.110.0 \
+        diskcache \
+        "uvicorn[standard]>=0.27.0" \
+        numba>=0.63.1 \
+        vector-quantize-pytorch>=1.27.15 \
+        torchao \
+        modelscope \
+        peft>=0.7.0 \
+        lightning>=2.0.0 \
+        tensorboard>=2.0.0 \
+        xxhash \
+        -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com || \
+    pip install transformers>=4.51.0,<4.58.0 \
+        diffusers \
+        gradio>=6.5.1 \
+        matplotlib>=3.7.5 \
+        scipy>=1.10.1 \
+        soundfile>=0.13.1 \
+        loguru>=0.7.3 \
+        einops>=0.8.1 \
+        accelerate>=1.12.0 \
+        fastapi>=0.110.0 \
+        diskcache \
+        "uvicorn[standard]>=0.27.0" \
+        numba>=0.63.1 \
+        vector-quantize-pytorch>=1.27.15 \
+        torchao \
+        modelscope \
+        peft>=0.7.0 \
+        lightning>=2.0.0 \
+        tensorboard>=2.0.0 \
+        xxhash
+
+# 注意：flash-attn 和 nano-vllm 在 Jetson 上可能需要特殊编译
+# 如果安装失败，可以跳过（性能会略有下降）
+RUN if [ -d "acestep/third_parts/nano-vllm" ]; then \
+        pip install -e acestep/third_parts/nano-vllm || echo "nano-vllm installation failed, continuing without it"; \
+    fi
+
+# 创建工作目录并赋权
+RUN mkdir -p /app/checkpoints /app/outputs /app/logs && \
+    chown -R 1001:1001 /app
+
+EXPOSE 7860
+VOLUME [ "/app/checkpoints", "/app/outputs", "/app/logs" ]
+
+# 使用 ACE-Step 1.5 的新入口点
+# 设备会自动检测 CUDA（如果可用）
+ENTRYPOINT ["python3", "acestep/acestep_v15_pipeline.py", "--server-name", "0.0.0.0", "--port", "7860"]
+
