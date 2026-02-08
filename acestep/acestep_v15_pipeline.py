@@ -217,12 +217,12 @@ def main():
                 print(f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)")
 
         try:
-        init_params = None
-        dit_handler = None
-        llm_handler = None
+            init_params = None
+            dit_handler = None
+            llm_handler = None
 
-        # If init_service is True, perform initialization before creating UI
-        if args.init_service:
+            # If init_service is True, perform initialization before creating UI
+            if args.init_service:
             print("Initializing service from command line...")
             
             # Create handler instances for initialization
@@ -352,48 +352,48 @@ def main():
             print("[main] ========================================", flush=True)
             print("[main] ✅ Service initialization completed successfully!", flush=True)
             print("[main] ========================================", flush=True)
-        
-        # Create and launch demo
-        print(f"[main] ========================================", flush=True)
-        print(f"[main] Creating Gradio interface...", flush=True)
-        print(f"[main]   Language: {args.language}", flush=True)
-        print(f"[main] ========================================", flush=True)
-        
-        # If not using init_service, still pass gpu_config to init_params
-        if init_params is None:
-            init_params = {
-                'gpu_config': gpu_config,
-                'language': args.language,
-                'output_dir': output_dir,  # Pass output dir to UI
-            }
-        
-        demo = create_demo(init_params=init_params, language=args.language)
-        
-        # Enable queue for multi-user support
-        # This ensures proper request queuing and prevents concurrent generation conflicts
-        print("[main] Enabling queue for multi-user support...", flush=True)
-        demo.queue(
-            max_size=20,  # Maximum queue size (adjust based on your needs)
-            status_update_rate="auto",  # Update rate for queue status
-            default_concurrency_limit=1,  # Prevents VRAM saturation
-        )
-        print("[main] ✅ Queue enabled", flush=True)
+            
+            # Create and launch demo
+            print(f"[main] ========================================", flush=True)
+            print(f"[main] Creating Gradio interface...", flush=True)
+            print(f"[main]   Language: {args.language}", flush=True)
+            print(f"[main] ========================================", flush=True)
+            
+            # If not using init_service, still pass gpu_config to init_params
+            if init_params is None:
+                init_params = {
+                    'gpu_config': gpu_config,
+                    'language': args.language,
+                    'output_dir': output_dir,  # Pass output dir to UI
+                }
+            
+            demo = create_demo(init_params=init_params, language=args.language)
+            
+            # Enable queue for multi-user support
+            # This ensures proper request queuing and prevents concurrent generation conflicts
+            print("[main] Enabling queue for multi-user support...", flush=True)
+            demo.queue(
+                max_size=20,  # Maximum queue size (adjust based on your needs)
+                status_update_rate="auto",  # Update rate for queue status
+                default_concurrency_limit=1,  # Prevents VRAM saturation
+            )
+            print("[main] ✅ Queue enabled", flush=True)
 
-        print(f"[main] ========================================", flush=True)
-        print(f"[main] Launching Gradio server...", flush=True)
-        print(f"[main]   Server: {args.server_name}:{args.port}", flush=True)
-        print(f"[main]   Share: {args.share}", flush=True)
-        print(f"[main]   Debug: {args.debug}", flush=True)
-        print(f"[main] ========================================", flush=True)
+            print(f"[main] ========================================", flush=True)
+            print(f"[main] Launching Gradio server...", flush=True)
+            print(f"[main]   Server: {args.server_name}:{args.port}", flush=True)
+            print(f"[main]   Share: {args.share}", flush=True)
+            print(f"[main]   Debug: {args.debug}", flush=True)
+            print(f"[main] ========================================", flush=True)
 
-        # Setup authentication if provided
-        auth = None
-        if args.auth_username and args.auth_password:
-            auth = (args.auth_username, args.auth_password)
-            print("Authentication enabled")
+            # Setup authentication if provided
+            auth = None
+            if args.auth_username and args.auth_password:
+                auth = (args.auth_username, args.auth_password)
+                print("Authentication enabled")
 
-        # Enable API endpoints if requested
-        if args.enable_api:
+            # Enable API endpoints if requested
+            if args.enable_api:
             print("Enabling API endpoints...")
             from acestep.gradio_ui.api_routes import setup_api_routes
 
