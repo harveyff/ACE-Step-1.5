@@ -106,117 +106,117 @@ def main():
             print(f"[main] ❌ ERROR: Failed to detect GPU config: {e}", file=sys.stderr, flush=True)
             traceback.print_exc(file=sys.stderr)
             raise
-    
-    gpu_memory_gb = gpu_config.gpu_memory_gb
-    auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
-    
-    # Print GPU configuration info
-    print(f"\n{'='*60}")
-    print("GPU Configuration Detected:")
-    print(f"{'='*60}")
-    print(f"  GPU Memory: {gpu_memory_gb:.2f} GB")
-    print(f"  Configuration Tier: {gpu_config.tier}")
-    print(f"  Max Duration (with LM): {gpu_config.max_duration_with_lm}s ({gpu_config.max_duration_with_lm // 60} min)")
-    print(f"  Max Duration (without LM): {gpu_config.max_duration_without_lm}s ({gpu_config.max_duration_without_lm // 60} min)")
-    print(f"  Max Batch Size (with LM): {gpu_config.max_batch_size_with_lm}")
-    print(f"  Max Batch Size (without LM): {gpu_config.max_batch_size_without_lm}")
-    print(f"  Default LM Init: {gpu_config.init_lm_default}")
-    print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
-    print(f"{'='*60}\n")
-    
-    if auto_offload:
-        print(f"Auto-enabling CPU offload (GPU < 16GB)")
-    elif gpu_memory_gb > 0:
-        print(f"CPU offload disabled by default (GPU >= 16GB)")
-    else:
-        print("No GPU detected, running on CPU")
+        
+        gpu_memory_gb = gpu_config.gpu_memory_gb
+        auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
+        
+        # Print GPU configuration info
+        print(f"\n{'='*60}")
+        print("GPU Configuration Detected:")
+        print(f"{'='*60}")
+        print(f"  GPU Memory: {gpu_memory_gb:.2f} GB")
+        print(f"  Configuration Tier: {gpu_config.tier}")
+        print(f"  Max Duration (with LM): {gpu_config.max_duration_with_lm}s ({gpu_config.max_duration_with_lm // 60} min)")
+        print(f"  Max Duration (without LM): {gpu_config.max_duration_without_lm}s ({gpu_config.max_duration_without_lm // 60} min)")
+        print(f"  Max Batch Size (with LM): {gpu_config.max_batch_size_with_lm}")
+        print(f"  Max Batch Size (without LM): {gpu_config.max_batch_size_without_lm}")
+        print(f"  Default LM Init: {gpu_config.init_lm_default}")
+        print(f"  Available LM Models: {gpu_config.available_lm_models or 'None'}")
+        print(f"{'='*60}\n")
+        
+        if auto_offload:
+            print(f"Auto-enabling CPU offload (GPU < 16GB)")
+        elif gpu_memory_gb > 0:
+            print(f"CPU offload disabled by default (GPU >= 16GB)")
+        else:
+            print("No GPU detected, running on CPU")
 
-    # Define local outputs directory
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    output_dir = os.path.join(project_root, "gradio_outputs")
-    # Normalize path to use forward slashes for Gradio 6 compatibility on Windows
-    output_dir = output_dir.replace("\\", "/")
-    print(f"[main] Project root: {project_root}", flush=True)
-    print(f"[main] Creating output directory: {output_dir}", flush=True)
-    os.makedirs(output_dir, exist_ok=True)
-    print(f"[main] ✅ Output directory ready: {output_dir}", flush=True)
+        # Define local outputs directory
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        output_dir = os.path.join(project_root, "gradio_outputs")
+        # Normalize path to use forward slashes for Gradio 6 compatibility on Windows
+        output_dir = output_dir.replace("\\", "/")
+        print(f"[main] Project root: {project_root}", flush=True)
+        print(f"[main] Creating output directory: {output_dir}", flush=True)
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"[main] ✅ Output directory ready: {output_dir}", flush=True)
 
-    parser = argparse.ArgumentParser(description="Gradio Demo for ACE-Step V1.5")
-    parser.add_argument("--port", type=int, default=7860, help="Port to run the gradio server on")
-    parser.add_argument("--share", action="store_true", help="Create a public link")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-    parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
-    parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "he", "ja"], help="UI language: en (English), zh (中文), he (עברית), ja (日本語)")
-    
-    # Service mode argument
-    parser.add_argument("--service_mode", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, 
-                       help="Enable service mode (default: False). When enabled, uses preset models and restricts UI options.")
-    
-    # Service initialization arguments
-    parser.add_argument("--init_service", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Initialize service on startup (default: False)")
-    parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file path (optional, for display purposes)")
-    parser.add_argument("--config_path", type=str, default=None, help="Main model path (e.g., 'acestep-v15-turbo')")
-    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cpu", "xpu", "mps"], help="Processing device (default: auto)")
-    parser.add_argument("--init_llm", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Initialize 5Hz LM (default: auto based on GPU memory)")
-    parser.add_argument("--lm_model_path", type=str, default=None, help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')")
-    parser.add_argument("--backend", type=str, default="vllm", choices=["vllm", "pt"], help="5Hz LM backend (default: vllm)")
-    parser.add_argument("--use_flash_attention", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Use flash attention (default: auto-detect)")
-    parser.add_argument("--offload_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=auto_offload, help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)")
-    parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Offload DiT to CPU (default: False)")
-    parser.add_argument("--download-source", type=str, default=None, choices=["huggingface", "modelscope", "auto"], help="Preferred model download source (default: auto-detect based on network)")
+        parser = argparse.ArgumentParser(description="Gradio Demo for ACE-Step V1.5")
+        parser.add_argument("--port", type=int, default=7860, help="Port to run the gradio server on")
+        parser.add_argument("--share", action="store_true", help="Create a public link")
+        parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+        parser.add_argument("--server-name", type=str, default="127.0.0.1", help="Server name (default: 127.0.0.1, use 0.0.0.0 for all interfaces)")
+        parser.add_argument("--language", type=str, default="en", choices=["en", "zh", "he", "ja"], help="UI language: en (English), zh (中文), he (עברית), ja (日本語)")
+        
+        # Service mode argument
+        parser.add_argument("--service_mode", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, 
+                           help="Enable service mode (default: False). When enabled, uses preset models and restricts UI options.")
+        
+        # Service initialization arguments
+        parser.add_argument("--init_service", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Initialize service on startup (default: False)")
+        parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file path (optional, for display purposes)")
+        parser.add_argument("--config_path", type=str, default=None, help="Main model path (e.g., 'acestep-v15-turbo')")
+        parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cpu", "xpu", "mps"], help="Processing device (default: auto)")
+        parser.add_argument("--init_llm", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Initialize 5Hz LM (default: auto based on GPU memory)")
+        parser.add_argument("--lm_model_path", type=str, default=None, help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')")
+        parser.add_argument("--backend", type=str, default="vllm", choices=["vllm", "pt"], help="5Hz LM backend (default: vllm)")
+        parser.add_argument("--use_flash_attention", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Use flash attention (default: auto-detect)")
+        parser.add_argument("--offload_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=auto_offload, help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)")
+        parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Offload DiT to CPU (default: False)")
+        parser.add_argument("--download-source", type=str, default=None, choices=["huggingface", "modelscope", "auto"], help="Preferred model download source (default: auto-detect based on network)")
 
-    # API mode argument
-    parser.add_argument("--enable-api", action="store_true", help="Enable API endpoints (default: False)")
+        # API mode argument
+        parser.add_argument("--enable-api", action="store_true", help="Enable API endpoints (default: False)")
 
-    # Authentication arguments
-    parser.add_argument("--auth-username", type=str, default=None, help="Username for Gradio authentication")
-    parser.add_argument("--auth-password", type=str, default=None, help="Password for Gradio authentication")
-    parser.add_argument("--api-key", type=str, default=None, help="API key for API endpoints authentication")
+        # Authentication arguments
+        parser.add_argument("--auth-username", type=str, default=None, help="Username for Gradio authentication")
+        parser.add_argument("--auth-password", type=str, default=None, help="Password for Gradio authentication")
+        parser.add_argument("--api-key", type=str, default=None, help="API key for API endpoints authentication")
 
-    args = parser.parse_args()
+        args = parser.parse_args()
 
-    # Enable API requires init_service
-    if args.enable_api:
-        args.init_service = True
-        # Load config from .env if not specified
-        if args.config_path is None:
-            args.config_path = os.environ.get("ACESTEP_CONFIG_PATH")
-        if args.lm_model_path is None:
-            args.lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH")
-        if os.environ.get("ACESTEP_LM_BACKEND"):
-            args.backend = os.environ.get("ACESTEP_LM_BACKEND")
+        # Enable API requires init_service
+        if args.enable_api:
+            args.init_service = True
+            # Load config from .env if not specified
+            if args.config_path is None:
+                args.config_path = os.environ.get("ACESTEP_CONFIG_PATH")
+            if args.lm_model_path is None:
+                args.lm_model_path = os.environ.get("ACESTEP_LM_MODEL_PATH")
+            if os.environ.get("ACESTEP_LM_BACKEND"):
+                args.backend = os.environ.get("ACESTEP_LM_BACKEND")
 
-    # Service mode defaults (can be configured via .env file)
-    if args.service_mode:
-        print("Service mode enabled - applying preset configurations...")
-        # Force init_service in service mode
-        args.init_service = True
-        # Default DiT model for service mode (from env or fallback)
-        if args.config_path is None:
-            args.config_path = os.environ.get(
-                "SERVICE_MODE_DIT_MODEL",
-                "acestep-v15-turbo-fix-inst-shift-dynamic"
-            )
-        # Default LM model for service mode (from env or fallback)
-        if args.lm_model_path is None:
-            args.lm_model_path = os.environ.get(
-                "SERVICE_MODE_LM_MODEL",
-                "acestep-5Hz-lm-1.7B-v4-fix"
-            )
-        # Backend for service mode (from env or fallback to vllm)
-        args.backend = os.environ.get("SERVICE_MODE_BACKEND", "vllm")
-        print(f"  DiT model: {args.config_path}")
-        print(f"  LM model: {args.lm_model_path}")
-        print(f"  Backend: {args.backend}")
-    
-    # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
-    # The 4B LM (~8GB) + DiT (~4.7GB) + VAE + text encoder exceeds 16-20GB with activations
-    if not args.offload_to_cpu and args.lm_model_path and "4B" in args.lm_model_path:
-        if 0 < gpu_memory_gb <= 24:
-            args.offload_to_cpu = True
-            print(f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)")
+        # Service mode defaults (can be configured via .env file)
+        if args.service_mode:
+            print("Service mode enabled - applying preset configurations...")
+            # Force init_service in service mode
+            args.init_service = True
+            # Default DiT model for service mode (from env or fallback)
+            if args.config_path is None:
+                args.config_path = os.environ.get(
+                    "SERVICE_MODE_DIT_MODEL",
+                    "acestep-v15-turbo-fix-inst-shift-dynamic"
+                )
+            # Default LM model for service mode (from env or fallback)
+            if args.lm_model_path is None:
+                args.lm_model_path = os.environ.get(
+                    "SERVICE_MODE_LM_MODEL",
+                    "acestep-5Hz-lm-1.7B-v4-fix"
+                )
+            # Backend for service mode (from env or fallback to vllm)
+            args.backend = os.environ.get("SERVICE_MODE_BACKEND", "vllm")
+            print(f"  DiT model: {args.config_path}")
+            print(f"  LM model: {args.lm_model_path}")
+            print(f"  Backend: {args.backend}")
+        
+        # Auto-enable CPU offload for tier6 GPUs (16-24GB) when using the 4B LM model
+        # The 4B LM (~8GB) + DiT (~4.7GB) + VAE + text encoder exceeds 16-20GB with activations
+        if not args.offload_to_cpu and args.lm_model_path and "4B" in args.lm_model_path:
+            if 0 < gpu_memory_gb <= 24:
+                args.offload_to_cpu = True
+                print(f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)")
 
-    try:
+        try:
         init_params = None
         dit_handler = None
         llm_handler = None
