@@ -398,48 +398,48 @@ def main():
 
             # Enable API endpoints if requested
             if args.enable_api:
-            print("Enabling API endpoints...")
-            from acestep.gradio_ui.api_routes import setup_api_routes
+                print("Enabling API endpoints...")
+                from acestep.gradio_ui.api_routes import setup_api_routes
 
-            # Launch Gradio first with prevent_thread_lock=True
-            demo.launch(
-                server_name=args.server_name,
-                server_port=args.port,
-                share=args.share,
-                debug=args.debug,
-                show_error=True,
-                prevent_thread_lock=True,  # Don't block, so we can add routes
-                inbrowser=False,
-                auth=auth,
-                allowed_paths=[output_dir],  # Fix audio loading on Windows
-            )
+                # Launch Gradio first with prevent_thread_lock=True
+                demo.launch(
+                    server_name=args.server_name,
+                    server_port=args.port,
+                    share=args.share,
+                    debug=args.debug,
+                    show_error=True,
+                    prevent_thread_lock=True,  # Don't block, so we can add routes
+                    inbrowser=False,
+                    auth=auth,
+                    allowed_paths=[output_dir],  # Fix audio loading on Windows
+                )
 
-            # Now add API routes to Gradio's FastAPI app (app is available after launch)
-            setup_api_routes(demo, dit_handler, llm_handler, api_key=args.api_key)
+                # Now add API routes to Gradio's FastAPI app (app is available after launch)
+                setup_api_routes(demo, dit_handler, llm_handler, api_key=args.api_key)
 
-            if args.api_key:
-                print("API authentication enabled")
-            print("API endpoints enabled: /health, /v1/models, /release_task, /query_result, /create_random_sample, /format_lyrics")
+                if args.api_key:
+                    print("API authentication enabled")
+                print("API endpoints enabled: /health, /v1/models, /release_task, /query_result, /create_random_sample, /format_lyrics")
 
-            # Keep the main thread alive
-            try:
-                while True:
-                    import time
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                print("\nShutting down...")
-        else:
-            demo.launch(
-                server_name=args.server_name,
-                server_port=args.port,
-                share=args.share,
-                debug=args.debug,
-                show_error=True,
-                prevent_thread_lock=False,
-                inbrowser=False,
-                auth=auth,
-                allowed_paths=[output_dir],  # Fix audio loading on Windows
-            )
+                # Keep the main thread alive
+                try:
+                    while True:
+                        import time
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    print("\nShutting down...")
+            else:
+                demo.launch(
+                    server_name=args.server_name,
+                    server_port=args.port,
+                    share=args.share,
+                    debug=args.debug,
+                    show_error=True,
+                    prevent_thread_lock=False,
+                    inbrowser=False,
+                    auth=auth,
+                    allowed_paths=[output_dir],  # Fix audio loading on Windows
+                )
     except KeyboardInterrupt:
         print("\n[main] Shutting down gracefully...", flush=True)
         sys.exit(0)
