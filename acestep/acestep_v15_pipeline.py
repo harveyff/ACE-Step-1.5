@@ -223,135 +223,139 @@ def main():
 
             # If init_service is True, perform initialization before creating UI
             if args.init_service:
-            print("Initializing service from command line...")
-            
-            # Create handler instances for initialization
-            dit_handler = AceStepHandler()
-            llm_handler = LLMHandler()
-            
-            # Auto-select config_path if not provided
-            if args.config_path is None:
-                available_models = dit_handler.get_available_acestep_v15_models()
-                if available_models:
-                    args.config_path = "acestep-v15-turbo" if "acestep-v15-turbo" in available_models else available_models[0]
-                    print(f"Auto-selected config_path: {args.config_path}")
-                else:
-                    print("Error: No available models found. Please specify --config_path", file=sys.stderr)
-                    sys.exit(1)
-            
-            # Get project root (same logic as in handler)
-            current_file = os.path.abspath(__file__)
-            project_root = os.path.dirname(os.path.dirname(current_file))
-            
-            # Determine flash attention setting
-            use_flash_attention = args.use_flash_attention
-            if use_flash_attention is None:
-                use_flash_attention = dit_handler.is_flash_attention_available()
-
-            # Determine download source preference
-            prefer_source = None
-            if args.download_source and args.download_source != "auto":
-                prefer_source = args.download_source
-                print(f"Using preferred download source: {prefer_source}")
-
-            # Initialize DiT handler
-            print(f"[main] ========================================", flush=True)
-            print(f"[main] Initializing DiT model...", flush=True)
-            print(f"[main]   Config path: {args.config_path}", flush=True)
-            print(f"[main]   Device: {args.device}", flush=True)
-            print(f"[main]   Flash attention: {use_flash_attention}", flush=True)
-            print(f"[main]   Offload to CPU: {args.offload_to_cpu}", flush=True)
-            print(f"[main]   Offload DiT to CPU: {args.offload_dit_to_cpu}", flush=True)
-            print(f"[main] ========================================", flush=True)
-            init_status, enable_generate = dit_handler.initialize_service(
-                project_root=project_root,
-                config_path=args.config_path,
-                device=args.device,
-                use_flash_attention=use_flash_attention,
-                compile_model=False,
-                offload_to_cpu=args.offload_to_cpu,
-                offload_dit_to_cpu=args.offload_dit_to_cpu,
-                prefer_source=prefer_source
-            )
-            
-            if not enable_generate:
-                print(f"[main] ❌ ERROR: DiT model initialization failed", file=sys.stderr, flush=True)
-                print(f"[main] Error details: {init_status}", file=sys.stderr, flush=True)
-                sys.exit(1)
-            
-            print(f"[main] ✅ DiT model initialized successfully", flush=True)
-            print(f"[main] Status: {init_status[:200]}...", flush=True)
-            
-            # Initialize LM handler if requested
-            # Auto-determine init_llm based on GPU config if not explicitly set
-            if args.init_llm is None:
-                args.init_llm = gpu_config.init_lm_default
-                print(f"Auto-setting init_llm to {args.init_llm} based on GPU configuration")
-            
-            lm_status = ""
-            if args.init_llm:
-                print(f"[main] ========================================", flush=True)
-                print(f"[main] Initializing 5Hz LM model...", flush=True)
-                if args.lm_model_path is None:
-                    # Try to get default LM model
-                    print(f"[main] No LM model specified, auto-selecting...", flush=True)
-                    available_lm_models = llm_handler.get_available_5hz_lm_models()
-                    if available_lm_models:
-                        args.lm_model_path = available_lm_models[0]
-                        print(f"[main] ✅ Using default LM model: {args.lm_model_path}", flush=True)
-                    else:
-                        print("[main] ⚠️  Warning: No LM models available, skipping LM initialization", file=sys.stderr, flush=True)
-                        args.init_llm = False
+                print("[main] ========================================", flush=True)
+                print("[main] Service initialization mode enabled", flush=True)
+                print("[main] ========================================", flush=True)
                 
-                if args.init_llm and args.lm_model_path:
-                    checkpoint_dir = os.path.join(project_root, "checkpoints")
-                    print(f"[main]   LM model path: {args.lm_model_path}", flush=True)
-                    print(f"[main]   Backend: {args.backend}", flush=True)
-                    print(f"[main]   Device: {args.device}", flush=True)
-                    print(f"[main]   Offload to CPU: {args.offload_to_cpu}", flush=True)
-                    print(f"[main] ========================================", flush=True)
-                    lm_status, lm_success = llm_handler.initialize(
-                        checkpoint_dir=checkpoint_dir,
-                        lm_model_path=args.lm_model_path,
-                        backend=args.backend,
-                        device=args.device,
-                        offload_to_cpu=args.offload_to_cpu,
-                        dtype=dit_handler.dtype,
-                    )
-                    
-                    if lm_success:
-                        print(f"[main] ✅ 5Hz LM initialized successfully", flush=True)
-                        print(f"[main] LM Status: {lm_status[:200]}...", flush=True)
-                        init_status += f"\n{lm_status}"
+                # Create handler instances for initialization
+                print("[main] Creating handler instances...", flush=True)
+                dit_handler = AceStepHandler()
+                llm_handler = LLMHandler()
+                print("[main] ✅ Handlers created", flush=True)
+                
+                # Auto-select config_path if not provided
+                if args.config_path is None:
+                    available_models = dit_handler.get_available_acestep_v15_models()
+                    if available_models:
+                        args.config_path = "acestep-v15-turbo" if "acestep-v15-turbo" in available_models else available_models[0]
+                        print(f"[main] Auto-selected config_path: {args.config_path}", flush=True)
                     else:
-                        print(f"[main] ⚠️  Warning: 5Hz LM initialization failed: {lm_status}", file=sys.stderr, flush=True)
-                        init_status += f"\n{lm_status}"
-            
-            # Prepare initialization parameters for UI
-            init_params = {
-                'pre_initialized': True,
-                'service_mode': args.service_mode,
-                'checkpoint': args.checkpoint,
-                'config_path': args.config_path,
-                'device': args.device,
-                'init_llm': args.init_llm,
-                'lm_model_path': args.lm_model_path,
-                'backend': args.backend,
-                'use_flash_attention': use_flash_attention,
-                'offload_to_cpu': args.offload_to_cpu,
-                'offload_dit_to_cpu': args.offload_dit_to_cpu,
-                'init_status': init_status,
-                'enable_generate': enable_generate,
-                'dit_handler': dit_handler,
-                'llm_handler': llm_handler,
-                'language': args.language,
-                'gpu_config': gpu_config,  # Pass GPU config to UI
-                'output_dir': output_dir,  # Pass output dir to UI
-            }
-            
-            print("[main] ========================================", flush=True)
-            print("[main] ✅ Service initialization completed successfully!", flush=True)
-            print("[main] ========================================", flush=True)
+                        print("[main] ❌ Error: No available models found. Please specify --config_path", file=sys.stderr, flush=True)
+                        sys.exit(1)
+                
+                # Get project root (same logic as in handler)
+                current_file = os.path.abspath(__file__)
+                project_root = os.path.dirname(os.path.dirname(current_file))
+                
+                # Determine flash attention setting
+                use_flash_attention = args.use_flash_attention
+                if use_flash_attention is None:
+                    use_flash_attention = dit_handler.is_flash_attention_available()
+
+                # Determine download source preference
+                prefer_source = None
+                if args.download_source and args.download_source != "auto":
+                    prefer_source = args.download_source
+                    print(f"[main] Using preferred download source: {prefer_source}", flush=True)
+
+                # Initialize DiT handler
+                print(f"[main] ========================================", flush=True)
+                print(f"[main] Initializing DiT model...", flush=True)
+                print(f"[main]   Config path: {args.config_path}", flush=True)
+                print(f"[main]   Device: {args.device}", flush=True)
+                print(f"[main]   Flash attention: {use_flash_attention}", flush=True)
+                print(f"[main]   Offload to CPU: {args.offload_to_cpu}", flush=True)
+                print(f"[main]   Offload DiT to CPU: {args.offload_dit_to_cpu}", flush=True)
+                print(f"[main] ========================================", flush=True)
+                init_status, enable_generate = dit_handler.initialize_service(
+                    project_root=project_root,
+                    config_path=args.config_path,
+                    device=args.device,
+                    use_flash_attention=use_flash_attention,
+                    compile_model=False,
+                    offload_to_cpu=args.offload_to_cpu,
+                    offload_dit_to_cpu=args.offload_dit_to_cpu,
+                    prefer_source=prefer_source
+                )
+                
+                if not enable_generate:
+                    print(f"[main] ❌ ERROR: DiT model initialization failed", file=sys.stderr, flush=True)
+                    print(f"[main] Error details: {init_status}", file=sys.stderr, flush=True)
+                    sys.exit(1)
+                
+                print(f"[main] ✅ DiT model initialized successfully", flush=True)
+                print(f"[main] Status: {init_status[:200]}...", flush=True)
+                
+                # Initialize LM handler if requested
+                # Auto-determine init_llm based on GPU config if not explicitly set
+                if args.init_llm is None:
+                    args.init_llm = gpu_config.init_lm_default
+                    print(f"[main] Auto-setting init_llm to {args.init_llm} based on GPU configuration", flush=True)
+                
+                lm_status = ""
+                if args.init_llm:
+                    print(f"[main] ========================================", flush=True)
+                    print(f"[main] Initializing 5Hz LM model...", flush=True)
+                    if args.lm_model_path is None:
+                        # Try to get default LM model
+                        print(f"[main] No LM model specified, auto-selecting...", flush=True)
+                        available_lm_models = llm_handler.get_available_5hz_lm_models()
+                        if available_lm_models:
+                            args.lm_model_path = available_lm_models[0]
+                            print(f"[main] ✅ Using default LM model: {args.lm_model_path}", flush=True)
+                        else:
+                            print("[main] ⚠️  Warning: No LM models available, skipping LM initialization", file=sys.stderr, flush=True)
+                            args.init_llm = False
+                    
+                    if args.init_llm and args.lm_model_path:
+                        checkpoint_dir = os.path.join(project_root, "checkpoints")
+                        print(f"[main]   LM model path: {args.lm_model_path}", flush=True)
+                        print(f"[main]   Backend: {args.backend}", flush=True)
+                        print(f"[main]   Device: {args.device}", flush=True)
+                        print(f"[main]   Offload to CPU: {args.offload_to_cpu}", flush=True)
+                        print(f"[main] ========================================", flush=True)
+                        lm_status, lm_success = llm_handler.initialize(
+                            checkpoint_dir=checkpoint_dir,
+                            lm_model_path=args.lm_model_path,
+                            backend=args.backend,
+                            device=args.device,
+                            offload_to_cpu=args.offload_to_cpu,
+                            dtype=dit_handler.dtype,
+                        )
+                        
+                        if lm_success:
+                            print(f"[main] ✅ 5Hz LM initialized successfully", flush=True)
+                            print(f"[main] LM Status: {lm_status[:200]}...", flush=True)
+                            init_status += f"\n{lm_status}"
+                        else:
+                            print(f"[main] ⚠️  Warning: 5Hz LM initialization failed: {lm_status}", file=sys.stderr, flush=True)
+                            init_status += f"\n{lm_status}"
+                
+                # Prepare initialization parameters for UI
+                init_params = {
+                    'pre_initialized': True,
+                    'service_mode': args.service_mode,
+                    'checkpoint': args.checkpoint,
+                    'config_path': args.config_path,
+                    'device': args.device,
+                    'init_llm': args.init_llm,
+                    'lm_model_path': args.lm_model_path,
+                    'backend': args.backend,
+                    'use_flash_attention': use_flash_attention,
+                    'offload_to_cpu': args.offload_to_cpu,
+                    'offload_dit_to_cpu': args.offload_dit_to_cpu,
+                    'init_status': init_status,
+                    'enable_generate': enable_generate,
+                    'dit_handler': dit_handler,
+                    'llm_handler': llm_handler,
+                    'language': args.language,
+                    'gpu_config': gpu_config,  # Pass GPU config to UI
+                    'output_dir': output_dir,  # Pass output dir to UI
+                }
+                
+                print("[main] ========================================", flush=True)
+                print("[main] ✅ Service initialization completed successfully!", flush=True)
+                print("[main] ========================================", flush=True)
             
             # Create and launch demo
             print(f"[main] ========================================", flush=True)
