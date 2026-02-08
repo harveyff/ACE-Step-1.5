@@ -369,40 +369,61 @@ class AceStepHandler:
             # Auto-detect project root (independent of passed project_root parameter)
             actual_project_root = self._get_project_root()
             checkpoint_dir = os.path.join(actual_project_root, "checkpoints")
+            logger.info(f"[initialize_service] Project root: {actual_project_root}")
+            logger.info(f"[initialize_service] Checkpoint directory: {checkpoint_dir}")
+            logger.info(f"[initialize_service] Checking checkpoint directory exists: {os.path.exists(checkpoint_dir)}")
 
             # Auto-download models if not present
             from pathlib import Path
             checkpoint_path = Path(checkpoint_dir)
             
             # Check and download main model components (vae, text_encoder, default DiT)
+            logger.info("[initialize_service] Checking main model components...")
             if not check_main_model_exists(checkpoint_path):
-                logger.info("[initialize_service] Main model not found, starting auto-download...")
+                logger.info("[initialize_service] ⚠️  Main model not found, starting auto-download...")
+                logger.info(f"[initialize_service] Download source preference: {prefer_source or 'auto'}")
                 success, msg = ensure_main_model(checkpoint_path, prefer_source=prefer_source)
                 if not success:
+                    logger.error(f"[initialize_service] ❌ Failed to download main model: {msg}")
                     return f"❌ Failed to download main model: {msg}", False
-                logger.info(f"[initialize_service] {msg}")
+                logger.info(f"[initialize_service] ✅ {msg}")
+            else:
+                logger.info("[initialize_service] ✅ Main model components found")
 
             # Check and download the requested DiT model
+            logger.info(f"[initialize_service] Checking DiT model '{config_path}'...")
             if not check_model_exists(config_path, checkpoint_path):
-                logger.info(f"[initialize_service] DiT model '{config_path}' not found, starting auto-download...")
+                logger.info(f"[initialize_service] ⚠️  DiT model '{config_path}' not found, starting auto-download...")
+                logger.info(f"[initialize_service] Download source preference: {prefer_source or 'auto'}")
                 success, msg = ensure_dit_model(config_path, checkpoint_path, prefer_source=prefer_source)
                 if not success:
+                    logger.error(f"[initialize_service] ❌ Failed to download DiT model '{config_path}': {msg}")
                     return f"❌ Failed to download DiT model '{config_path}': {msg}", False
-                logger.info(f"[initialize_service] {msg}")
+                logger.info(f"[initialize_service] ✅ {msg}")
+            else:
+                logger.info(f"[initialize_service] ✅ DiT model '{config_path}' found")
 
             # 1. Load main model
             # config_path is relative path (e.g., "acestep-v15-turbo"), concatenate to checkpoints directory
             acestep_v15_checkpoint_path = os.path.join(checkpoint_dir, config_path)
+            logger.info(f"[initialize_service] ========================================")
+            logger.info(f"[initialize_service] Loading DiT model...")
+            logger.info(f"[initialize_service] Model path: {acestep_v15_checkpoint_path}")
+            logger.info(f"[initialize_service] Path exists: {os.path.exists(acestep_v15_checkpoint_path)}")
+            
             if os.path.exists(acestep_v15_checkpoint_path):
                 # Determine attention implementation
+                logger.info("[initialize_service] Determining attention implementation...")
                 if use_flash_attention and self.is_flash_attention_available():
                     attn_implementation = "flash_attention_2"
                     self.dtype = torch.bfloat16
+                    logger.info("[initialize_service] ✅ Using flash_attention_2")
                 else:
                     attn_implementation = "sdpa"
+                    logger.info(f"[initialize_service] Using sdpa (flash_attention requested: {use_flash_attention}, available: {self.is_flash_attention_available()})")
 
                 try:
-                    logger.info(f"[initialize_service] Attempting to load model with attention implementation: {attn_implementation}")
+                    logger.info(f"[initialize_service] Loading model with attention: {attn_implementation}, dtype: {self.dtype}")
                     self.model = AutoModel.from_pretrained(
                         acestep_v15_checkpoint_path, 
                         trust_remote_code=True, 
@@ -424,17 +445,21 @@ class AceStepHandler:
 
                 self.model.config._attn_implementation = attn_implementation
                 self.config = self.model.config
+                logger.info(f"[initialize_service] Model loaded, moving to device...")
                 # Move model to device and set dtype
                 if not self.offload_to_cpu:
+                    logger.info(f"[initialize_service] Moving model to {device} with dtype {self.dtype}")
                     self.model = self.model.to(device).to(self.dtype)
                 else:
                     # If offload_to_cpu is True, check if we should keep DiT on GPU
                     if not self.offload_dit_to_cpu:
-                        logger.info(f"[initialize_service] Keeping main model on {device} (persistent)")
+                        logger.info(f"[initialize_service] Keeping main model on {device} (persistent, offload_dit_to_cpu=False)")
                         self.model = self.model.to(device).to(self.dtype)
                     else:
+                        logger.info(f"[initialize_service] Moving model to CPU (offload_dit_to_cpu=True)")
                         self.model = self.model.to("cpu").to(self.dtype)
                 self.model.eval()
+                logger.info("[initialize_service] ✅ DiT model loaded and ready")
                 
                 if compile_model:
                     # Add __len__ method to model to support torch.compile

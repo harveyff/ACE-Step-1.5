@@ -85,10 +85,27 @@ def create_demo(init_params=None, language='en'):
 def main():
     """Main entry function"""
     import argparse
+    import traceback
     
-    # Detect GPU memory and get configuration
-    gpu_config = get_gpu_config()
-    set_global_gpu_config(gpu_config)  # Set global config for use across modules
+    try:
+        # Detect GPU memory and get configuration
+        print("[main] ========================================", flush=True)
+        print("[main] ACE-Step V1.5 Pipeline Starting", flush=True)
+        print("[main] ========================================", flush=True)
+        print(f"[main] Python version: {sys.version}", flush=True)
+        print(f"[main] Python executable: {sys.executable}", flush=True)
+        print(f"[main] Working directory: {os.getcwd()}", flush=True)
+        print(f"[main] Script path: {os.path.abspath(__file__)}", flush=True)
+        
+        try:
+            print("[main] Detecting GPU configuration...", flush=True)
+            gpu_config = get_gpu_config()
+            set_global_gpu_config(gpu_config)  # Set global config for use across modules
+            print("[main] ✅ GPU configuration detected successfully", flush=True)
+        except Exception as e:
+            print(f"[main] ❌ ERROR: Failed to detect GPU config: {e}", file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
+            raise
     
     gpu_memory_gb = gpu_config.gpu_memory_gb
     auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
@@ -119,8 +136,10 @@ def main():
     output_dir = os.path.join(project_root, "gradio_outputs")
     # Normalize path to use forward slashes for Gradio 6 compatibility on Windows
     output_dir = output_dir.replace("\\", "/")
+    print(f"[main] Project root: {project_root}", flush=True)
+    print(f"[main] Creating output directory: {output_dir}", flush=True)
     os.makedirs(output_dir, exist_ok=True)
-    print(f"Output directory: {output_dir}")
+    print(f"[main] ✅ Output directory ready: {output_dir}", flush=True)
 
     parser = argparse.ArgumentParser(description="Gradio Demo for ACE-Step V1.5")
     parser.add_argument("--port", type=int, default=7860, help="Port to run the gradio server on")
@@ -236,7 +255,14 @@ def main():
                 print(f"Using preferred download source: {prefer_source}")
 
             # Initialize DiT handler
-            print(f"Initializing DiT model: {args.config_path} on {args.device}...")
+            print(f"[main] ========================================", flush=True)
+            print(f"[main] Initializing DiT model...", flush=True)
+            print(f"[main]   Config path: {args.config_path}", flush=True)
+            print(f"[main]   Device: {args.device}", flush=True)
+            print(f"[main]   Flash attention: {use_flash_attention}", flush=True)
+            print(f"[main]   Offload to CPU: {args.offload_to_cpu}", flush=True)
+            print(f"[main]   Offload DiT to CPU: {args.offload_dit_to_cpu}", flush=True)
+            print(f"[main] ========================================", flush=True)
             init_status, enable_generate = dit_handler.initialize_service(
                 project_root=project_root,
                 config_path=args.config_path,
@@ -249,10 +275,12 @@ def main():
             )
             
             if not enable_generate:
-                print(f"Error initializing DiT model: {init_status}", file=sys.stderr)
+                print(f"[main] ❌ ERROR: DiT model initialization failed", file=sys.stderr, flush=True)
+                print(f"[main] Error details: {init_status}", file=sys.stderr, flush=True)
                 sys.exit(1)
             
-            print(f"DiT model initialized successfully")
+            print(f"[main] ✅ DiT model initialized successfully", flush=True)
+            print(f"[main] Status: {init_status[:200]}...", flush=True)
             
             # Initialize LM handler if requested
             # Auto-determine init_llm based on GPU config if not explicitly set
@@ -262,19 +290,26 @@ def main():
             
             lm_status = ""
             if args.init_llm:
+                print(f"[main] ========================================", flush=True)
+                print(f"[main] Initializing 5Hz LM model...", flush=True)
                 if args.lm_model_path is None:
                     # Try to get default LM model
+                    print(f"[main] No LM model specified, auto-selecting...", flush=True)
                     available_lm_models = llm_handler.get_available_5hz_lm_models()
                     if available_lm_models:
                         args.lm_model_path = available_lm_models[0]
-                        print(f"Using default LM model: {args.lm_model_path}")
+                        print(f"[main] ✅ Using default LM model: {args.lm_model_path}", flush=True)
                     else:
-                        print("Warning: No LM models available, skipping LM initialization", file=sys.stderr)
+                        print("[main] ⚠️  Warning: No LM models available, skipping LM initialization", file=sys.stderr, flush=True)
                         args.init_llm = False
                 
                 if args.init_llm and args.lm_model_path:
                     checkpoint_dir = os.path.join(project_root, "checkpoints")
-                    print(f"Initializing 5Hz LM: {args.lm_model_path} on {args.device}...")
+                    print(f"[main]   LM model path: {args.lm_model_path}", flush=True)
+                    print(f"[main]   Backend: {args.backend}", flush=True)
+                    print(f"[main]   Device: {args.device}", flush=True)
+                    print(f"[main]   Offload to CPU: {args.offload_to_cpu}", flush=True)
+                    print(f"[main] ========================================", flush=True)
                     lm_status, lm_success = llm_handler.initialize(
                         checkpoint_dir=checkpoint_dir,
                         lm_model_path=args.lm_model_path,
@@ -285,10 +320,11 @@ def main():
                     )
                     
                     if lm_success:
-                        print(f"5Hz LM initialized successfully")
+                        print(f"[main] ✅ 5Hz LM initialized successfully", flush=True)
+                        print(f"[main] LM Status: {lm_status[:200]}...", flush=True)
                         init_status += f"\n{lm_status}"
                     else:
-                        print(f"Warning: 5Hz LM initialization failed: {lm_status}", file=sys.stderr)
+                        print(f"[main] ⚠️  Warning: 5Hz LM initialization failed: {lm_status}", file=sys.stderr, flush=True)
                         init_status += f"\n{lm_status}"
             
             # Prepare initialization parameters for UI
@@ -313,10 +349,15 @@ def main():
                 'output_dir': output_dir,  # Pass output dir to UI
             }
             
-            print("Service initialization completed successfully!")
+            print("[main] ========================================", flush=True)
+            print("[main] ✅ Service initialization completed successfully!", flush=True)
+            print("[main] ========================================", flush=True)
         
         # Create and launch demo
-        print(f"Creating Gradio interface with language: {args.language}...")
+        print(f"[main] ========================================", flush=True)
+        print(f"[main] Creating Gradio interface...", flush=True)
+        print(f"[main]   Language: {args.language}", flush=True)
+        print(f"[main] ========================================", flush=True)
         
         # If not using init_service, still pass gpu_config to init_params
         if init_params is None:
@@ -330,14 +371,20 @@ def main():
         
         # Enable queue for multi-user support
         # This ensures proper request queuing and prevents concurrent generation conflicts
-        print("Enabling queue for multi-user support...")
+        print("[main] Enabling queue for multi-user support...", flush=True)
         demo.queue(
             max_size=20,  # Maximum queue size (adjust based on your needs)
             status_update_rate="auto",  # Update rate for queue status
             default_concurrency_limit=1,  # Prevents VRAM saturation
         )
+        print("[main] ✅ Queue enabled", flush=True)
 
-        print(f"Launching server on {args.server_name}:{args.port}...")
+        print(f"[main] ========================================", flush=True)
+        print(f"[main] Launching Gradio server...", flush=True)
+        print(f"[main]   Server: {args.server_name}:{args.port}", flush=True)
+        print(f"[main]   Share: {args.share}", flush=True)
+        print(f"[main]   Debug: {args.debug}", flush=True)
+        print(f"[main] ========================================", flush=True)
 
         # Setup authentication if provided
         auth = None
@@ -389,10 +436,14 @@ def main():
                 auth=auth,
                 allowed_paths=[output_dir],  # Fix audio loading on Windows
             )
+    except KeyboardInterrupt:
+        print("\n[main] Shutting down gracefully...", flush=True)
+        sys.exit(0)
     except Exception as e:
-        print(f"Error launching Gradio: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
+        print(f"\n[main] ❌ FATAL ERROR: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        print(f"[main] Full traceback:", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        print(f"[main] Exiting with error code 1", file=sys.stderr, flush=True)
         sys.exit(1)
 
 
