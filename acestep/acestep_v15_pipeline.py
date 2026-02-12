@@ -97,16 +97,13 @@ def main():
         print(f"[main] Working directory: {os.getcwd()}", flush=True)
         print(f"[main] Script path: {os.path.abspath(__file__)}", flush=True)
         
-        try:
-            print("[main] Detecting GPU configuration...", flush=True)
-            gpu_config = get_gpu_config()
-            set_global_gpu_config(gpu_config)  # Set global config for use across modules
-            print("[main] ✅ GPU configuration detected successfully", flush=True)
-        except Exception as e:
-            print(f"[main] ❌ ERROR: Failed to detect GPU config: {e}", file=sys.stderr, flush=True)
-            traceback.print_exc(file=sys.stderr)
-            raise
+        # Detect GPU configuration
+        print("[main] Detecting GPU configuration...", flush=True)
+        gpu_config = get_gpu_config()
+        set_global_gpu_config(gpu_config)  # Set global config for use across modules
+        print("[main] ✅ GPU configuration detected successfully", flush=True)
         
+        # Get GPU memory after successful configuration
         gpu_memory_gb = gpu_config.gpu_memory_gb
         auto_offload = gpu_memory_gb > 0 and gpu_memory_gb < VRAM_16GB_MIN_GB
         
