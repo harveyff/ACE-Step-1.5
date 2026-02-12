@@ -501,7 +501,13 @@ class LLMHandler:
             
             # Disable CUDA/HIP graph capture on ROCm (unverified on RDNA3 Windows)
             is_rocm = hasattr(torch.version, 'hip') and torch.version.hip is not None
-            enforce_eager_for_vllm = bool(is_rocm)
+            # Allow manual override via environment variable for debugging segfaults
+            enforce_eager_env = os.environ.get("ACESTEP_VLLM_ENFORCE_EAGER", "").lower()
+            if enforce_eager_env in ("true", "1", "yes"):
+                enforce_eager_for_vllm = True
+                logger.info("vLLM enforce_eager mode enabled via ACESTEP_VLLM_ENFORCE_EAGER environment variable")
+            else:
+                enforce_eager_for_vllm = bool(is_rocm)
 
             # Auto-detect best backend on Apple Silicon
             if backend == "mlx" or (backend == "vllm" and device == "mps"):

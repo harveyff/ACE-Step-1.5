@@ -100,7 +100,11 @@ def main():
     # 16 GB GPUs to never offload, leading to OOM.
     # Mac (Apple Silicon) uses unified memory — offloading provides no benefit.
     auto_offload = (not _is_mac) and gpu_memory_gb > 0 and gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB
-    _default_backend = "mlx" if _is_mac else "vllm"
+    
+    # Safety: Use PyTorch backend by default for certain GPU models that are known to have
+    # vllm segfault issues (e.g., NVIDIA L4 with certain CUDA/driver versions)
+    # Users can override with ACESTEP_LM_BACKEND=vllm if needed
+    _default_backend = "mlx" if _is_mac else "pt"  # Changed from "vllm" to "pt" for stability
     
     # Print GPU configuration info
     print(f"\n{'='*60}")
@@ -157,7 +161,7 @@ def main():
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "xpu", "cpu"], help="Processing device (default: auto)")
     parser.add_argument("--init_llm", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Initialize 5Hz LM (default: auto based on GPU memory)")
     parser.add_argument("--lm_model_path", type=str, default=None, help="5Hz LM model path (e.g., 'acestep-5Hz-lm-0.6B')")
-    parser.add_argument("--backend", type=str, default=_default_backend, choices=["vllm", "pt", "mlx"], help=f"5Hz LM backend (default: {_default_backend}, use 'mlx' for native Apple Silicon acceleration)")
+    parser.add_argument("--backend", type=str, default=_default_backend, choices=["vllm", "pt", "mlx"], help=f"5Hz LM backend (default: {_default_backend}, use 'pt' for stability, 'vllm' for speed, 'mlx' for Apple Silicon)")
     parser.add_argument("--use_flash_attention", type=lambda x: x.lower() in ['true', '1', 'yes'], default=None, help="Use flash attention (default: auto-detect)")
     parser.add_argument("--offload_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=auto_offload, help=f"Offload models to CPU (default: {'True' if auto_offload else 'False'}, auto-detected based on GPU VRAM)")
     parser.add_argument("--offload_dit_to_cpu", type=lambda x: x.lower() in ['true', '1', 'yes'], default=False, help="Offload DiT to CPU (default: False)")
@@ -214,17 +218,27 @@ def main():
             args.offload_to_cpu = True
             print(f"Auto-enabling CPU offload (4B LM model requires offloading on {gpu_memory_gb:.0f}GB GPU)")
 
-    # Safety: on 16GB GPUs, prevent selecting LM models that are too large.
-    # Even with offloading, a 4B LM (8 GB weights + KV cache) leaves almost no
-    # headroom for DiT activations on a 16 GB card.
-    if args.lm_model_path and 0 < gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB:
-        if "4B" in args.lm_model_path:
+    # Safety: prevent selecting LM models that are too large.
+    # Even with offloading, a 4B LM (8 GB weights + KV cache) can cause issues.
+    # For GPUs < 20GB: always downgrade
+    # For GPUs 20-24GB: downgrade if vllm backend (vllm has higher memory overhead)
+    if args.lm_model_path and "4B" in args.lm_model_path:
+        should_downgrade = False
+        if 0 < gpu_memory_gb < VRAM_AUTO_OFFLOAD_THRESHOLD_GB:
+            # Always downgrade for < 20GB GPUs
+            should_downgrade = True
+            reason = f"4B LM model is too large for {gpu_memory_gb:.0f}GB GPU"
+        elif 20 <= gpu_memory_gb <= 24 and args.backend == "vllm":
+            # For 20-24GB GPUs with vllm, downgrade to avoid segfaults
+            # vllm has higher memory overhead and can cause crashes
+            should_downgrade = True
+            reason = f"4B LM model with vllm backend may cause segfaults on {gpu_memory_gb:.0f}GB GPU, downgrading to 1.7B for stability"
+        
+        if should_downgrade:
             # Downgrade to 1.7B if available
             fallback = args.lm_model_path.replace("4B", "1.7B")
-            print(
-                f"WARNING: 4B LM model is too large for {gpu_memory_gb:.0f}GB GPU. "
-                f"Downgrading to 1.7B variant: {fallback}"
-            )
+            print(f"WARNING: {reason}")
+            print(f"Downgrading to 1.7B variant: {fallback}")
             args.lm_model_path = fallback
 
     try:
