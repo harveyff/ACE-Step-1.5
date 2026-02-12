@@ -11,72 +11,120 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # Workaround for diffusers library bug: patch logger before any diffusers import
 def _patch_diffusers_logger_early():
     """Patch diffusers library logger bug before any imports."""
+    import logging
+    
+    # Collect all possible paths to search
+    search_paths = []
+    
+    # Try site.getsitepackages()
     try:
-        # Try to find and patch the diffusers file
         import site
-        import logging
-        
-        # Get site-packages paths
-        site_packages = site.getsitepackages()
-        if not site_packages:
-            # Fallback for virtual environments
-            import sysconfig
-            site_packages = [sysconfig.get_path('purelib')]
-        
-        # Look for diffusers package
-        for site_path in site_packages:
-            torchao_file = os.path.join(site_path, "diffusers", "quantizers", "torchao", "torchao_quantizer.py")
-            if os.path.exists(torchao_file):
-                try:
-                    with open(torchao_file, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    # Check if logger is used but not defined
-                    if ('logger.warning' in content or 'logger.' in content) and 'logger = logging.getLogger' not in content:
-                        # Check if we need to add logger
-                        if 'import logging' in content:
-                            # Add logger definition after logging import
-                            if 'logger = logging.getLogger' not in content:
-                                # Find a good place to add it (after imports, before first use)
-                                lines = content.split('\n')
-                                added = False
-                                for i, line in enumerate(lines):
-                                    if line.strip().startswith('import logging') or (i > 0 and 'import logging' in lines[i-1]):
-                                        # Add logger after this import
-                                        if i + 1 < len(lines) and 'logger = logging.getLogger' not in lines[i+1]:
-                                            lines.insert(i + 1, 'logger = logging.getLogger(__name__)')
-                                            added = True
-                                            break
-                                
-                                if added:
-                                    content = '\n'.join(lines)
-                                    # Write the patched file
-                                    with open(torchao_file, 'w', encoding='utf-8') as f:
-                                        f.write(content)
-                                    break
-                        else:
-                            # Need to add both import and logger
-                            lines = content.split('\n')
-                            import_end = 0
-                            for i, line in enumerate(lines):
-                                if line.startswith('import ') or line.startswith('from '):
-                                    import_end = i
-                            
-                            # Add after imports
-                            lines.insert(import_end + 1, 'import logging')
-                            lines.insert(import_end + 2, 'logger = logging.getLogger(__name__)')
-                            content = '\n'.join(lines)
-                            
-                            # Write the patched file
-                            with open(torchao_file, 'w', encoding='utf-8') as f:
-                                f.write(content)
-                            break
-                except (IOError, PermissionError):
-                    # Can't write to file, will try runtime patching instead
-                    pass
+        search_paths.extend(site.getsitepackages())
     except Exception:
-        # If early patching fails, we'll try runtime patching
         pass
+    
+    # Try sysconfig for virtual environments
+    try:
+        import sysconfig
+        search_paths.append(sysconfig.get_path('purelib'))
+    except Exception:
+        pass
+    
+    # Try to find from sys.path (for virtual environments)
+    try:
+        for path in sys.path:
+            if 'site-packages' in path or '.venv' in path or 'venv' in path:
+                search_paths.append(path)
+    except Exception:
+        pass
+    
+    # Remove duplicates and non-existent paths
+    search_paths = [p for p in set(search_paths) if p and os.path.exists(p)]
+    
+    # Look for diffusers package
+    torchao_file = None
+    for site_path in search_paths:
+        candidate = os.path.join(site_path, "diffusers", "quantizers", "torchao", "torchao_quantizer.py")
+        if os.path.exists(candidate):
+            torchao_file = candidate
+            break
+    
+    if not torchao_file:
+        # Last resort: try to find it in sys.path
+        try:
+            import diffusers
+            if hasattr(diffusers, '__path__'):
+                torchao_file = os.path.join(diffusers.__path__[0], "quantizers", "torchao", "torchao_quantizer.py")
+        except ImportError:
+            pass
+    
+    if torchao_file and os.path.exists(torchao_file):
+        try:
+            with open(torchao_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Check if logger is used but not defined
+            needs_logger = ('logger.warning' in content or 'logger.' in content) and 'logger = logging.getLogger' not in content
+            
+            if needs_logger:
+                lines = content.split('\n')
+                modified = False
+                
+                # Check if logging is imported
+                has_logging_import = any('import logging' in line for line in lines)
+                
+                if has_logging_import:
+                    # Find where to add logger definition (after logging import)
+                    for i, line in enumerate(lines):
+                        if 'import logging' in line:
+                            # Check if logger is already defined in next few lines
+                            found_logger_def = False
+                            for j in range(i + 1, min(i + 5, len(lines))):
+                                if 'logger = logging.getLogger' in lines[j]:
+                                    found_logger_def = True
+                                    break
+                            
+                            if not found_logger_def:
+                                # Add logger definition right after logging import
+                                lines.insert(i + 1, 'logger = logging.getLogger(__name__)')
+                                modified = True
+                                break
+                else:
+                    # Need to add both import and logger
+                    # Find the end of imports section
+                    import_end = -1
+                    for i, line in enumerate(lines):
+                        stripped = line.strip()
+                        if stripped and (stripped.startswith('import ') or stripped.startswith('from ')):
+                            import_end = i
+                        elif stripped and import_end >= 0 and not stripped.startswith('#'):
+                            # End of imports
+                            break
+                    
+                    if import_end >= 0:
+                        # Insert after last import
+                        lines.insert(import_end + 1, 'import logging')
+                        lines.insert(import_end + 2, 'logger = logging.getLogger(__name__)')
+                        modified = True
+                    else:
+                        # Fallback: add at the beginning
+                        lines.insert(0, 'import logging')
+                        lines.insert(1, 'logger = logging.getLogger(__name__)')
+                        modified = True
+                
+                if modified:
+                    # Write the patched file
+                    new_content = '\n'.join(lines)
+                    try:
+                        with open(torchao_file, 'w', encoding='utf-8') as f:
+                            f.write(new_content)
+                        print(f"[patch] ✅ Fixed diffusers logger bug in {torchao_file}", file=sys.stderr, flush=True)
+                    except (IOError, PermissionError) as write_error:
+                        print(f"[patch] ⚠️  Could not write to {torchao_file}: {write_error}", file=sys.stderr, flush=True)
+                        print(f"[patch] ⚠️  You may need to manually add 'logger = logging.getLogger(__name__)' to the file", file=sys.stderr, flush=True)
+        except Exception as e:
+            # Can't patch file, will try runtime patching instead
+            print(f"[patch] ⚠️  Warning: Could not patch diffusers file: {e}", file=sys.stderr, flush=True)
 
 # Attempt early patch before any diffusers import
 _patch_diffusers_logger_early()
@@ -152,13 +200,13 @@ def _patch_diffusers_logger_bug():
 
 def _safe_import_autoencoder_oobleck():
     """Safely import AutoencoderOobleck, patching the logger bug if needed."""
-    # First, try to patch before importing
-    _patch_diffusers_logger_bug()
+    # First, try to patch the file directly (more reliable than runtime patching)
+    _patch_diffusers_logger_early()
     
     try:
         from diffusers.models import AutoencoderOobleck
         return AutoencoderOobleck
-    except (NameError, RuntimeError) as e:
+    except (NameError, RuntimeError, ImportError) as e:
         error_str = str(e)
         if "logger" in error_str or "name 'logger' is not defined" in error_str:
             # Try to patch the logger issue after the error
