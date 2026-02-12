@@ -4,6 +4,7 @@ Main entry point for setting up all event handlers
 """
 import gradio as gr
 from typing import Optional
+from loguru import logger
 
 # Import handler modules
 from . import generation_handlers as gen_h
@@ -42,6 +43,24 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         ]
     )
     
+    # ========== Tier Override ==========
+    generation_section["tier_dropdown"].change(
+        fn=lambda tier: gen_h.on_tier_change(tier, llm_handler),
+        inputs=[generation_section["tier_dropdown"]],
+        outputs=[
+            generation_section["offload_to_cpu_checkbox"],
+            generation_section["offload_dit_to_cpu_checkbox"],
+            generation_section["compile_model_checkbox"],
+            generation_section["quantization_checkbox"],
+            generation_section["backend_dropdown"],
+            generation_section["lm_model_path"],
+            generation_section["init_llm_checkbox"],
+            generation_section["batch_size_input"],
+            generation_section["audio_duration"],
+            generation_section["gpu_info_display"],
+        ]
+    )
+    
     generation_section["init_btn"].click(
         fn=lambda *args: gen_h.init_service_wrapper(dit_handler, llm_handler, *args),
         inputs=[
@@ -56,6 +75,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["offload_dit_to_cpu_checkbox"],
             generation_section["compile_model_checkbox"],
             generation_section["quantization_checkbox"],
+            generation_section["mlx_dit_checkbox"],
         ],
         outputs=[
             generation_section["init_status"], 
@@ -69,6 +89,9 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["cfg_interval_start"],
             generation_section["cfg_interval_end"],
             generation_section["task_type"],
+            # GPU-config-aware limits (updated after initialization)
+            generation_section["audio_duration"],
+            generation_section["batch_size_input"],
         ]
     )
     
@@ -483,7 +506,8 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
                 generation_section["key_scale"],
                 generation_section["vocal_language"],
                 generation_section["time_signature"],
-                results_section["is_format_caption_state"]
+                results_section["is_format_caption_state"],
+                generation_section["audio_uploads_accordion"]
             ]
         )
     
@@ -538,6 +562,19 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
         yield from res_h.generate_with_batch_management(dit_handler, llm_handler, *args)
     # ========== Generation Handler ==========
     generation_section["generate_btn"].click(
+        fn=res_h.clear_audio_outputs_for_new_generation,
+        outputs=[
+            results_section["generated_audio_1"],
+            results_section["generated_audio_2"],
+            results_section["generated_audio_3"],
+            results_section["generated_audio_4"],
+            results_section["generated_audio_5"],
+            results_section["generated_audio_6"],
+            results_section["generated_audio_7"],
+            results_section["generated_audio_8"],
+            results_section["generated_audio_batch"],
+        ],
+    ).then(
         fn=generation_wrapper,
         inputs=[
             generation_section["captions"],
@@ -585,6 +622,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["lm_batch_chunk_size"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
+            generation_section["enable_normalization"],
+            generation_section["normalization_db"],
+            generation_section["latent_shift"],
+            generation_section["latent_rescale"],
             generation_section["autogen_checkbox"],
             results_section["current_batch_index"],
             results_section["total_batches"],
@@ -647,7 +688,7 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             results_section["next_batch_btn"],
             results_section["next_batch_status"],
             results_section["restore_params_btn"],
-        ]
+        ],
     ).then(
         fn=lambda *args: res_h.generate_next_batch_background(dit_handler, llm_handler, *args),
         inputs=[
@@ -772,6 +813,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["lm_batch_chunk_size"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
+            generation_section["enable_normalization"],
+            generation_section["normalization_db"],
+            generation_section["latent_shift"],
+            generation_section["latent_rescale"],
         ],
         outputs=[results_section["generation_params_state"]]
     ).then(
@@ -879,6 +924,10 @@ def setup_event_handlers(demo, dit_handler, llm_handler, dataset_handler, datase
             generation_section["allow_lm_batch"],
             generation_section["track_name"],
             generation_section["complete_track_classes"],
+            generation_section["enable_normalization"],
+            generation_section["normalization_db"],
+            generation_section["latent_shift"],
+            generation_section["latent_rescale"],
         ]
     )
     
@@ -1180,12 +1229,15 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
     )
     
     # Start training from preprocessed tensors
-    def training_wrapper(tensor_dir, r, a, d, lr, ep, bs, ga, se, sh, sd, od, ts):
+    def training_wrapper(tensor_dir, r, a, d, lr, ep, bs, ga, se, sh, sd, od, rc, ts):
+        from loguru import logger
+        if not isinstance(ts, dict):
+            ts = {"is_training": False, "should_stop": False}
         try:
-            for progress, log, plot, state in train_h.start_training(
-                tensor_dir, dit_handler, llm_handler, r, a, d, lr, ep, bs, ga, se, sh, sd, od, ts
+            for progress, log_msg, plot, state in train_h.start_training(
+                tensor_dir, dit_handler, r, a, d, lr, ep, bs, ga, se, sh, sd, od, rc, ts
             ):
-                yield progress, log, plot, state
+                yield progress, log_msg, plot, state
         except Exception as e:
             logger.exception("Training wrapper error")
             yield f"❌ Error: {str(e)}", str(e), None, ts
@@ -1205,6 +1257,7 @@ def setup_training_event_handlers(demo, dit_handler, llm_handler, training_secti
             training_section["training_shift"],
             training_section["training_seed"],
             training_section["lora_output_dir"],
+            training_section["resume_checkpoint_dir"],
             training_section["training_state"],
         ],
         outputs=[
