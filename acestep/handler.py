@@ -8,6 +8,79 @@ import sys
 # Disable tokenizers parallelism to avoid fork warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Workaround for diffusers library bug: patch logger before any diffusers import
+def _patch_diffusers_logger_early():
+    """Patch diffusers library logger bug before any imports."""
+    try:
+        # Try to find and patch the diffusers file
+        import site
+        import logging
+        
+        # Get site-packages paths
+        site_packages = site.getsitepackages()
+        if not site_packages:
+            # Fallback for virtual environments
+            import sysconfig
+            site_packages = [sysconfig.get_path('purelib')]
+        
+        # Look for diffusers package
+        for site_path in site_packages:
+            torchao_file = os.path.join(site_path, "diffusers", "quantizers", "torchao", "torchao_quantizer.py")
+            if os.path.exists(torchao_file):
+                try:
+                    with open(torchao_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Check if logger is used but not defined
+                    if ('logger.warning' in content or 'logger.' in content) and 'logger = logging.getLogger' not in content:
+                        # Check if we need to add logger
+                        if 'import logging' in content:
+                            # Add logger definition after logging import
+                            if 'logger = logging.getLogger' not in content:
+                                # Find a good place to add it (after imports, before first use)
+                                lines = content.split('\n')
+                                added = False
+                                for i, line in enumerate(lines):
+                                    if line.strip().startswith('import logging') or (i > 0 and 'import logging' in lines[i-1]):
+                                        # Add logger after this import
+                                        if i + 1 < len(lines) and 'logger = logging.getLogger' not in lines[i+1]:
+                                            lines.insert(i + 1, 'logger = logging.getLogger(__name__)')
+                                            added = True
+                                            break
+                                
+                                if added:
+                                    content = '\n'.join(lines)
+                                    # Write the patched file
+                                    with open(torchao_file, 'w', encoding='utf-8') as f:
+                                        f.write(content)
+                                    break
+                        else:
+                            # Need to add both import and logger
+                            lines = content.split('\n')
+                            import_end = 0
+                            for i, line in enumerate(lines):
+                                if line.startswith('import ') or line.startswith('from '):
+                                    import_end = i
+                            
+                            # Add after imports
+                            lines.insert(import_end + 1, 'import logging')
+                            lines.insert(import_end + 2, 'logger = logging.getLogger(__name__)')
+                            content = '\n'.join(lines)
+                            
+                            # Write the patched file
+                            with open(torchao_file, 'w', encoding='utf-8') as f:
+                                f.write(content)
+                            break
+                except (IOError, PermissionError):
+                    # Can't write to file, will try runtime patching instead
+                    pass
+    except Exception:
+        # If early patching fails, we'll try runtime patching
+        pass
+
+# Attempt early patch before any diffusers import
+_patch_diffusers_logger_early()
+
 import math
 from copy import deepcopy
 import tempfile
@@ -30,7 +103,150 @@ import warnings
 
 from transformers import AutoTokenizer, AutoModel, AutoModelForCausalLM
 from transformers.generation.streamers import BaseStreamer
-from diffusers.models import AutoencoderOobleck
+
+# Workaround for diffusers library bug: logger not defined in torchao_quantizer.py
+def _patch_diffusers_logger_bug():
+    """Patch diffusers library to fix missing logger before import."""
+    try:
+        import importlib.util
+        import logging
+        import sys
+        
+        # Find the torchao_quantizer module file
+        try:
+            import diffusers
+            diffusers_path = diffusers.__path__[0]
+            torchao_file = os.path.join(diffusers_path, "quantizers", "torchao", "torchao_quantizer.py")
+            
+            # Check if file exists and needs patching
+            if os.path.exists(torchao_file):
+                with open(torchao_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Check if logger is used but not defined
+                if 'logger.warning' in content or 'logger.' in content:
+                    # Check if logger is imported or defined
+                    if 'import logging' not in content or 'logger = logging.getLogger' not in content:
+                        # Try to add logger definition if missing
+                        # We'll do this by importing the module and patching it
+                        # But we need to do this before the problematic code runs
+                        pass
+        except Exception:
+            pass
+        
+        # Try to pre-import and patch the module
+        try:
+            # Import the parent module first
+            import diffusers.quantizers.torchao
+            # Now try to access the quantizer module
+            if hasattr(diffusers.quantizers.torchao, 'torchao_quantizer'):
+                module = diffusers.quantizers.torchao.torchao_quantizer
+                if not hasattr(module, 'logger'):
+                    module.logger = logging.getLogger('diffusers.quantizers.torchao.torchao_quantizer')
+        except (ImportError, AttributeError, NameError):
+            # Module not loaded yet or error occurred - we'll handle during actual import
+            pass
+    except Exception:
+        # If patching fails, we'll handle it during actual import
+        pass
+
+def _safe_import_autoencoder_oobleck():
+    """Safely import AutoencoderOobleck, patching the logger bug if needed."""
+    # First, try to patch before importing
+    _patch_diffusers_logger_bug()
+    
+    try:
+        from diffusers.models import AutoencoderOobleck
+        return AutoencoderOobleck
+    except (NameError, RuntimeError) as e:
+        error_str = str(e)
+        if "logger" in error_str or "name 'logger' is not defined" in error_str:
+            # Try to patch the logger issue after the error
+            try:
+                import logging
+                import sys
+                
+                # Try to import and patch the problematic module
+                try:
+                    import diffusers.quantizers.torchao.torchao_quantizer as torchao_module
+                    if not hasattr(torchao_module, 'logger'):
+                        torchao_module.logger = logging.getLogger('diffusers.quantizers.torchao.torchao_quantizer')
+                except (ImportError, NameError):
+                    # Module failed to import due to the bug - try to patch the file directly
+                    try:
+                        import diffusers
+                        diffusers_path = diffusers.__path__[0]
+                        torchao_file = os.path.join(diffusers_path, "quantizers", "torchao", "torchao_quantizer.py")
+                        
+                        if os.path.exists(torchao_file):
+                            with open(torchao_file, 'r', encoding='utf-8') as f:
+                                content = f.read()
+                            
+                            # Check if we need to add logger import
+                            if 'logger.warning' in content and 'logger = logging.getLogger' not in content:
+                                # Add logger definition after imports
+                                import re
+                                # Find the import section and add logger
+                                if 'import logging' in content:
+                                    # Add logger definition after logging import
+                                    content = content.replace(
+                                        'import logging',
+                                        'import logging\nlogger = logging.getLogger(__name__)'
+                                    )
+                                else:
+                                    # Add both import and logger
+                                    lines = content.split('\n')
+                                    import_idx = 0
+                                    for i, line in enumerate(lines):
+                                        if line.startswith('import ') or line.startswith('from '):
+                                            import_idx = i
+                                    lines.insert(import_idx + 1, 'import logging')
+                                    lines.insert(import_idx + 2, 'logger = logging.getLogger(__name__)')
+                                    content = '\n'.join(lines)
+                                
+                                # Write the patched file
+                                with open(torchao_file, 'w', encoding='utf-8') as f:
+                                    f.write(content)
+                                
+                                # Clear module cache and retry
+                                modules_to_clear = [
+                                    'diffusers.quantizers.torchao.torchao_quantizer',
+                                    'diffusers.quantizers.torchao',
+                                    'diffusers.quantizers',
+                                    'diffusers.models.autoencoders.autoencoder_oobleck',
+                                    'diffusers.models.autoencoders',
+                                    'diffusers.models',
+                                ]
+                                for mod_name in modules_to_clear:
+                                    if mod_name in sys.modules:
+                                        del sys.modules[mod_name]
+                                
+                                # Retry import
+                                from diffusers.models import AutoencoderOobleck
+                                return AutoencoderOobleck
+                    except Exception as patch_error:
+                        logger.error(f"Failed to patch diffusers logger bug: {patch_error}")
+                        raise RuntimeError(
+                            "Failed to import AutoencoderOobleck due to diffusers library bug. "
+                            "The diffusers library has a bug where 'logger' is not defined in "
+                            "torchao_quantizer.py. Please update diffusers to a fixed version, "
+                            f"or manually add 'logger = logging.getLogger(__name__)' to that file. "
+                            f"Original error: {e}"
+                        ) from e
+                
+                # Retry import after patching
+                from diffusers.models import AutoencoderOobleck
+                return AutoencoderOobleck
+            except Exception as patch_error:
+                logger.error(f"Failed to patch diffusers logger bug: {patch_error}")
+                raise RuntimeError(
+                    "Failed to import AutoencoderOobleck due to diffusers library bug. "
+                    f"Original error: {e}, Patch error: {patch_error}"
+                ) from patch_error
+        raise
+
+# Lazy import AutoencoderOobleck to avoid diffusers library bug with logger
+# from diffusers.models import AutoencoderOobleck
 from acestep.model_downloader import (
     ensure_main_model,
     ensure_dit_model,
@@ -801,6 +1017,8 @@ class AceStepHandler(InitServiceMixin, LoraManagerMixin, ProgressMixin):
             # 2. Load VAE
             vae_checkpoint_path = os.path.join(checkpoint_dir, "vae")
             if os.path.exists(vae_checkpoint_path):
+                # Lazy import to avoid diffusers library bug with logger
+                AutoencoderOobleck = _safe_import_autoencoder_oobleck()
                 self.vae = AutoencoderOobleck.from_pretrained(vae_checkpoint_path)
                 if not self.offload_to_cpu:
                     # Keep VAE in GPU precision when resident on accelerator.
